@@ -53,6 +53,9 @@ label.ck input{width:22px;height:22px;flex:none;margin-top:1px;accent-color:var(
 .fin{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 .btn.fb{flex-direction:column;gap:4px;padding:14px 8px;font-size:15px}.btn.fb .ico{font-size:22px;line-height:1}
 .btn.fb.wa{background:#25d366;border-color:#25d366;color:#fff}
+.tec{display:flex;gap:12px;align-items:center;text-align:left;background:var(--soft);border-radius:14px;padding:12px;margin:6px 0 4px}
+.tec span:last-child{display:flex;flex-direction:column;gap:1px;min-width:0}.tec small{color:var(--muted);font-size:13px;word-break:break-all}
+.tec-av{flex:none;width:46px;height:46px;border-radius:50%;background:var(--acc);color:#fff;display:grid;place-items:center;font-weight:700;font-size:17px}
 .doc h2{margin:14px 0 6px;color:var(--ink);font-size:14.5px}.doc h2:first-child{margin-top:0}
 .doc p{text-align:justify}.doc p.small{font-size:12px;color:var(--muted)}
 .doc .tw{margin:8px 0 12px}.doc td.sh{background:var(--soft);font-weight:600}
@@ -488,7 +491,13 @@ const DT_C = {ink:[20,24,22], mut:[95,104,98], line:[70,74,72], sh:[226,239,218]
 function docTplPdf(D, o = {}){
   const {jsPDF} = window.jspdf, doc = new jsPDF({unit:"mm", format:"a4", compress:true});
   const ML = 15, CW = 180, BOT = 279, C = DT_C, carta = D.estilo === "carta";
-  const sello = D.sello || (typeof SELLO !== "undefined" ? SELLO : null);
+  const sello = D.sinSello ? null : D.sello === "@" ? "@" : (D.sello || (typeof SELLO !== "undefined" ? SELLO : null));
+  /* Coloca una imagen dentro de un recuadro sin deformarla; "@" = la pone la empresa al recibir el documento firmado */
+  const ponerImg = (img, x, yy, w, h) => {
+    if(img === "@"){ doc.__pos = {p:doc.internal.getCurrentPageInfo().pageNumber, x, y:yy, w, h}; return; }
+    try{ const pr = doc.getImageProperties(img), r = Math.min(w / pr.width, h / pr.height), iw = pr.width * r, ih = pr.height * r; doc.addImage(img, pr.fileType || "PNG", x + (w - iw) / 2, yy + (h - ih) / 2, iw, ih); }catch(_){}
+  };
+  const ponerEmpresa = (x, yy, w, h) => { if(!sello) return; ponerImg(sello, x, yy, w, h); if(sello !== "@" && D.sello2) ponerImg(D.sello2, x, yy, w, h); };
   let y = 0;
   const font = (b, i, s) => { doc.setFont("helvetica", b && i ? "bolditalic" : b ? "bold" : i ? "italic" : "normal"); if(s) doc.setFontSize(s); };
   function cabecera(){
@@ -583,7 +592,7 @@ function docTplPdf(D, o = {}){
       tabla({w:[1, 1], rows:[{hd:true, c:[{t:F.t || "El trabajador"}, {t:F.e || "Por la empresa"}]}, {c:[{t:"Nombre: " + nombre, b:true}, {t:"Nombre: " + (F.en || ""), b:true}]}, {h:24, c:[{t:"Firma:"}, {t:`Cargo: ${F.ec || ""}\nFirma:`}]}, {c:[{t:"Fecha: " + fecha, b:true}, {t:"Fecha: " + (F.fe || fecha), b:true}]}], after:0});
       const yFirma = y0 + 1 + 11.2;
       if(o.firma) try{ doc.addImage(o.firma, "PNG", ML + 16, yFirma + 2, 60, 20); }catch(_){}
-      if(sello && F.e !== false) try{ doc.addImage(sello, "PNG", ML + 90 + 46, yFirma + 2, 38, 20); }catch(_){}
+      if(F.e !== false) ponerEmpresa(ML + 90 + 44, yFirma + 1, 44, 21);
       y += 4;
     } else {
       need(44); y += 5; const yl = y;
@@ -592,7 +601,7 @@ function docTplPdf(D, o = {}){
       if(carta) doc.text("D/Dña. " + nombre, ML + 8, yl + 4.6);
       if(F.e !== false) doc.text(F.e || "Fdo.: La Empresa", ML + 118, yl);
       if(o.firma) try{ doc.addImage(o.firma, "PNG", ML + 2, yl + (carta ? 6 : 3), 66, 22); }catch(_){}
-      if(sello && F.e !== false) try{ doc.addImage(sello, "PNG", ML + 116, yl + 3, 46, 46 * 131 / 249); }catch(_){}
+      if(F.e !== false) ponerEmpresa(ML + 114, yl + 2, 52, 24);
       font(false, false, 8); doc.setTextColor(...C.mut);
       if(!carta || o.firma){ const t = [nombre, nif ? "NIF " + nif : "", fecha].filter(Boolean).join(" · "); if(t) doc.text(t, ML + 4, yl + 28); }
       if(F.e !== false && (F.en || F.ec)) doc.text([F.en, F.ec].filter(Boolean).join(" · "), ML + 118, yl + 28);
@@ -733,6 +742,7 @@ async function firmar(){
   let blob;
   if(D.doc){
     const doc = docTplPdf(D.doc, {firma, fn, nif, fecha:ahora.toLocaleDateString("es-ES", {day:"2-digit", month:"2-digit", year:"numeric"}), nota:`Firmado a distancia con firma manuscrita digitalizada el ${cuando}. Huella del documento: ${huella}. Referencia: ${D.t}/${D.id}.${cm ? " Comentario del firmante: " + cm : ""}`});
+    if(doc.__pos) meta.pos = doc.__pos;
     doc.setProperties({title:D.ti, subject:"EFFICO-FIRMA", author:fn, keywords:"EFFICO-FIRMA:" + b64u.enc(new TextEncoder().encode(JSON.stringify(meta))), creator:"EFFICO SIG"});
     blob = doc.output("blob");
   } else blob = pdf(D, meta, cuando);
@@ -752,22 +762,24 @@ async function firmar(){
 let FIN = null;
 function mensajeFin(){
   const copia = CORTO ? `${location.origin}/c#${H0}` : "";
-  return `Hola, soy ${FIN.fn}. He firmado el documento «${D.ti}» el ${FIN.cuando}.${copia ? "\n\nDocumento firmado: " + copia : ""}`;
+  return `Hola${D.tn ? " " + D.tn.split(" ")[0] : ""}, soy ${FIN.fn}. Te envío firmado el documento «${D.ti}» (${FIN.cuando}).${copia ? "\n\nDocumento firmado: " + copia : ""}`;
 }
 const PUEDE_ADJUNTAR = (() => { try{ return !!(navigator.canShare && navigator.canShare({files:[new File(["%PDF"], "prueba.pdf", {type:"application/pdf"})]})); }catch(_){ return false; } })();
 function pintarFin(){
   const F = FIN, txt = mensajeFin(), tel = String(D.wa || "").replace(/[^\d]/g, ""), telI = tel.length === 9 ? "34" + tel : tel;
   const wa = `https://wa.me/${telI}?text=${encodeURIComponent(txt)}`, mail = `mailto:${encodeURIComponent(D.to || "")}?subject=${encodeURIComponent("Documento firmado: " + D.ti)}&body=${encodeURIComponent(txt)}`;
-  const dest = [D.wa ? `WhatsApp <b>${esc(D.wa)}</b>` : "", D.to ? `correo <b>${esc(D.to)}</b>` : ""].filter(Boolean).join(" · ");
+  const quien = D.tn || "Servicio de Prevención", ini = quien.split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]).join("").toUpperCase();
+  const dest = `<div class="tec"><span class="tec-av">${esc(ini)}</span><span><b>${esc(quien)}</b><small>${D.tn ? "Técnico de prevención de tu centro" : esc(D.em ? D.em.n : "")}</small>${D.wa ? `<small>WhatsApp: <b>${esc(D.wa)}</b></small>` : ""}${D.to ? `<small>Correo: <b>${esc(D.to)}</b></small>` : ""}</span></div>`;
   $("#firmar").innerHTML = `<div class="center"><div class="ok">✓</div><h2 style="color:var(--ink);font-size:19px">Documento firmado</h2>
       ${CORTO ? (F.enviado ? `<p><b>Ya está enviado a EFFICO.</b> No tienes que hacer nada más.</p>` : `<p class="err">No se ha podido enviar (${esc(F.err)}).</p><button class="btn p" id="reint" type="button">Reintentar el envío</button>`)
-        : `<p>Envíalo al Servicio de Prevención${dest ? ":<br>" + dest : "."}</p>`}</div>
+        : `<p>Envíalo ahora a:</p>${dest}`}</div>
     <div class="fin">
       <button class="btn fb wa" id="b-wa" type="button"><span class="ico">✆</span>WhatsApp</button>
       <button class="btn fb" id="b-mail" type="button"><span class="ico">✉</span>Correo</button>
       <button class="btn fb" id="b-otro" type="button"><span class="ico">⇪</span>Otro medio</button>
       <a class="btn fb" href="${F.url}" download="${esc(F.nombre)}"><span class="ico">⬇</span>Descargar</a>
     </div>
+    ${tel ? `<a class="btn" id="b-chat" href="${wa}" style="width:100%;margin-top:10px">Abrir el chat de ${esc(D.tn ? D.tn.split(" ")[0] : "prevención")} en WhatsApp</a>` : ""}
     <p class="aviso" id="fin-msg"></p>
     <p class="foot" style="margin-top:12px">Firmado el ${esc(F.cuando)} · huella ${esc(F.huella)}</p>`;
   const msg = t => { $("#fin-msg").innerHTML = t; $("#fin-msg").style.display = t ? "block" : "none"; };
