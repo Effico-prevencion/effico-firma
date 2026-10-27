@@ -36,6 +36,9 @@ label.ck{display:flex;gap:10px;align-items:flex-start;font-weight:600;margin-top
 #paginas{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px;display:flex;flex-direction:column;align-items:center;gap:10px}
 #paginas canvas,#paginas img{max-width:100%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.3)}
 .marca{font-size:11px;color:#dfe5df;text-align:center;padding:6px}
+.pad{position:relative;border:2px dashed #9fb39a;border-radius:14px;background:#fff;height:190px;touch-action:none;margin-top:8px}.pad canvas{position:absolute;inset:0;width:100%;height:100%;border-radius:12px}.pad .ph{position:absolute;inset:0;display:grid;place-items:center;color:#a5b0a3;pointer-events:none}
+.stars{display:flex;gap:6px;margin-top:6px}.stars button{border:0;background:none;font-size:34px;line-height:1;color:#d5dbd2;padding:0;cursor:pointer}.stars button.on{color:#e0a400}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px;margin:10px 0 0}.dl dt{color:var(--muted);font-weight:600}.dl dd{margin:0;font-weight:600}
 </style>
 </head>
 <body>
@@ -540,7 +543,56 @@ async function confirmar(){
   $("#b-mail").onclick = async () => { if(await adjuntar("Acuse de lectura: " + B.t)) return; sin(mail, "el correo"); };
   $("#b-otro").onclick = async () => { if(await adjuntar("Acuse de lectura")) return; descargar(); msg("El justificante está descargado: envíalo por donde quieras."); };
 }
-abrir();
+/* ---------- Firma de asistencia a una charla ---------- */
+async function charla(){
+  let C; try{ const b = b64u.dec(H.slice(3)), s = new Blob([b]).stream().pipeThrough(new DecompressionStream("deflate-raw")); C = JSON.parse(await new Response(s).text()); }catch(_){ return error("Enlace incompleto", "Vuelve a escanear el código de la charla."); }
+  let V = 0;
+  $("#app").innerHTML = `<div class="card"><h1>${esc(C.t || "Charla")}</h1><dl class="dl"><dt>Fecha</dt><dd>${esc(fmtF(C.f))}</dd><dt>Centro</dt><dd>${esc(C.c || "")}</dd>${C.p ? `<dt>Imparte</dt><dd>${esc(C.p)}</dd>` : ""}</dl>${C.r ? `<p class="txt">${esc(C.r)}</p>` : ""}</div>
+    <div class="card" id="fch"><h2>Firma de asistencia</h2><div class="f"><label for="a-n">Nombre y apellidos</label><input id="a-n" autocomplete="name"></div><div class="f"><label for="a-d">DNI / NIE</label><input id="a-d" autocomplete="off" autocapitalize="characters"></div>
+      <div class="f"><span>Valora la charla (opcional)</span><div class="stars">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-v="${n}" aria-label="${n} de 5">★</button>`).join("")}</div></div>
+      <div class="f"><label for="a-c">Comentario (opcional)</label><input id="a-c"></div>
+      <div class="f"><span>Firma</span><div class="pad"><canvas id="cv"></canvas><span class="ph">Firma aquí con el dedo</span></div><button class="btn" type="button" id="borrar" style="align-self:flex-start;margin-top:6px">Borrar firma</button></div>
+      <label class="ck"><input type="checkbox" id="a-ck"><span>He asistido a esta charla.</span></label><p class="err" id="a-e"></p><button class="btn p" type="button" id="a-ok">Firmar</button></div>`;
+  document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { V = Number(b.dataset.v); document.querySelectorAll("[data-v]").forEach((x, i) => x.classList.toggle("on", i < V)); });
+  const cv = $("#cv"), r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr); g.lineWidth = 2.4; g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = "#16241b";
+  let dib = false, last = null, n = 0; const pos = e => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+  cv.addEventListener("pointerdown", e => { dib = true; last = pos(e); cv.setPointerCapture(e.pointerId); cv.parentElement.querySelector(".ph").style.display = "none"; });
+  cv.addEventListener("pointermove", e => { if(!dib) return; const p = pos(e); g.beginPath(); g.moveTo(last[0], last[1]); g.lineTo(p[0], p[1]); g.stroke(); last = p; n++; });
+  ["pointerup", "pointercancel"].forEach(ev => cv.addEventListener(ev, () => { dib = false; }));
+  $("#borrar").onclick = () => { g.clearRect(0, 0, cv.width, cv.height); n = 0; cv.parentElement.querySelector(".ph").style.display = ""; };
+  $("#a-ok").onclick = async () => {
+    const nom = $("#a-n").value.trim(), dni = $("#a-d").value.trim().toUpperCase().replace(/[\s.-]/g, ""), e = t => { $("#a-e").textContent = t; };
+    if(nom.length < 4) return e("Escribe tu nombre y apellidos."); if(!/^[XYZ]?\d{7,8}[A-Z]$/.test(dni)) return e("Escribe tu DNI o NIE completo, con la letra.");
+    if(n < 8) return e("Firma en el recuadro."); if(!$("#a-ck").checked) return e("Marca la casilla «He asistido a esta charla».");
+    const k = document.createElement("canvas"); k.width = 420; k.height = 160; const kg = k.getContext("2d"); kg.fillStyle = "#fff"; kg.fillRect(0, 0, 420, 160); kg.drawImage(cv, 0, 0, 420, 160); const fi = k.toDataURL("image/png");
+    const ts = new Date(), cuando = ts.toLocaleString("es-ES", {dateStyle:"short", timeStyle:"short"});
+    const doc = new jspdf.jsPDF({unit:"mm", format:"a4"}), W = 210, M = 18; let y = 18;
+    try{ doc.addImage(LOGO, "PNG", M, y - 6, 34, 12); }catch(_){}
+    doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.text("Firma de asistencia a charla", M, y + 16); y += 26; doc.setFontSize(11);
+    const fila = (a, b) => { doc.setFont("helvetica", "bold"); doc.text(a, M, y); doc.setFont("helvetica", "normal"); const L = doc.splitTextToSize(String(b), W - M - 70); doc.text(L, M + 50, y); y += 6 * L.length + 1; };
+    fila("Charla", C.t || ""); fila("Fecha", fmtF(C.f)); fila("Centro", C.c || ""); if(C.p) fila("Imparte", C.p); fila("Asistente", nom); fila("DNI / NIE", dni); fila("Firmado", cuando); if(V) fila("Valoración", V + " de 5"); const com = $("#a-c").value.trim(); if(com) fila("Comentario", com);
+    y += 4; doc.addImage(fi, "PNG", M, y, 70, 27);
+    const meta = {c:C.id, n:nom, dni, ts:ts.toISOString(), v:V, com, fi};
+    doc.setProperties({title:"Firma charla: " + (C.t || ""), subject:"EFFICO-CHARLA", author:nom, keywords:"EFFICO-CHARLA:" + b64u.enc(new TextEncoder().encode(JSON.stringify(meta))), creator:"EFFICO SIG"});
+    const blob = doc.output("blob"), nombre = `Firma_charla_${nom.replace(/[^\wÀ-ÿ]+/g, "_")}.pdf`;
+    enviarJustificante($("#fch"), "Charla firmada", blob, nombre, `Hola${C.tec && C.tec.n ? " " + C.tec.n.split(" ")[0] : ""}, soy ${nom}. Te envío mi firma de asistencia a la charla «${C.t || ""}» (${cuando}).`, C.tec || {}, "Firma de charla: " + (C.t || ""));
+  };
+}
+function enviarJustificante(box, titulo, blob, nombre, txt, T, asunto){
+  const file = new File([blob], nombre, {type:"application/pdf"}), url = URL.createObjectURL(blob), tel = String(T.wa || "").replace(/[^\d]/g, ""), telI = tel.length === 9 ? "34" + tel : tel;
+  const wa = tel ? `https://wa.me/${telI}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`, mail = `mailto:${encodeURIComponent(T.m || "")}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(txt)}`;
+  const puede = (() => { try{ return !!(navigator.canShare && navigator.canShare({files:[file]})); }catch(_){ return false; } })();
+  box.innerHTML = `<div class="center"><div class="ok">✓</div><h2 style="color:var(--ink);font-size:19px">${esc(titulo)}</h2><p>Envía ahora el justificante a ${esc(T.n || "prevención")}:</p></div>
+    <div class="fin"><button class="btn fb wa" id="b-wa" type="button">WhatsApp</button><button class="btn fb" id="b-mail" type="button">Correo</button><button class="btn fb" id="b-otro" type="button">Otro medio</button><a class="btn fb" href="${url}" download="${esc(nombre)}">Descargar</a></div><p class="aviso" id="fin-msg"></p>`;
+  const msg = t => { $("#fin-msg").innerHTML = t; $("#fin-msg").style.display = t ? "block" : "none"; };
+  const descargar = () => { const a = document.createElement("a"); a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); };
+  const adjuntar = async t => { if(!puede) return false; try{ await navigator.share({files:[file], title:t, text:txt}); return true; }catch(e){ return !!(e && e.name === "AbortError"); } };
+  const sin = (abrir, donde) => { descargar(); msg(`Se ha descargado el justificante: en ${donde} pulsa el clip 📎 y adjúntalo.`); setTimeout(() => { location.href = abrir; }, 700); };
+  $("#b-wa").onclick = async () => { if(await adjuntar(titulo)) return; sin(wa, "WhatsApp"); };
+  $("#b-mail").onclick = async () => { if(await adjuntar(asunto)) return; sin(mail, "el correo"); };
+  $("#b-otro").onclick = async () => { if(await adjuntar(titulo)) return; descargar(); msg("El justificante está descargado: envíalo por donde quieras."); };
+}
+if(H.startsWith("ch.")) charla(); else abrir();
 </script>
 </body>
 </html>
