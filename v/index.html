@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="visor-ver" content="4">
+<meta name="visor-ver" content="6">
 <title>Comunicación · EFFICO</title>
 <style>
 :root{--bg:#f2f5ef;--card:#fff;--ink:#1b2a21;--muted:#5b6a60;--line:#dde4d6;--acc:#296749;--lime:#9bb933;--soft:#e9f1df;--bad:#b3261e;--ok:#2e7d4f}
@@ -483,18 +483,28 @@ async function abrir(){
   $("#pin-ok").onclick = ok; $("#pin").onkeydown = e => { if(e.key === "Enter") ok(); }; $("#pin").focus();
 }
 const ext = n => (String(n).split(".").pop() || "").toUpperCase().slice(0, 4);
+let YO = null, ENVIADO = false, ACUSE_HTML = "";
 function pintar(){
-  const todos = () => B.docs.every((_, i) => VISTOS.has(i));
-  $("#app").innerHTML = `<div class="card"><h1>${esc(B.t)}</h1><p class="sub">${esc(B.emp || "EFFICO")} · ${esc(fmtF(B.f))}${B.cad ? " · disponible hasta el " + esc(fmtF(B.cad)) : ""}</p>${B.x ? `<p class="txt">${esc(B.x)}</p>` : ""}</div>
-    <div class="card"><h2>Documentos</h2><div class="docs">${B.docs.map((d, i) => `<div class="doc"><span class="ext">${esc(ext(d.n))}</span><b>${esc(d.n.replace(/\.[^.]+$/, ""))}</b>${VISTOS.has(i) ? `<span class="vis">✓ Visto</span>` : ""}<button class="btn" type="button" data-ver="${i}">Ver</button>${B.dl ? `<button class="btn" type="button" data-dl="${i}" aria-label="Descargar">⬇</button>` : ""}</div>`).join("")}</div></div>
-    ${B.ack ? `<div class="card" id="acuse"><h2>Confirmar la lectura</h2>${todos() ? "" : `<p class="sub">Abre todos los documentos para poder confirmar.</p>`}
+  const todos = () => B.docs.every((_, i) => VISTOS.has(i)), AUTO = !!(B.ack && B.nube), bloq = AUTO && !YO;
+  const conLista = !!(B.dn && B.dn.length);
+  $("#app").innerHTML = (AUTO ? (!YO ? `<div class="card" id="ident"><h2>Escribe tu DNI</h2><p class="sub">${conLista ? "Para abrir los documentos escribe tu DNI o NIE. Al abrirlos, la lectura queda registrada sola." : "Escribe tu nombre y tu DNI. Al abrir los documentos, la lectura queda registrada sola."}</p>
+      ${conLista ? "" : `<div class="f"><label for="i-n">Nombre y apellidos</label><input id="i-n" autocomplete="name"></div>`}<div class="f"><label for="i-d">DNI / NIE</label><input id="i-d" autocomplete="off" autocapitalize="characters" inputmode="text" placeholder="12345678Z"></div><p class="err" id="i-e"></p><button class="btn p" id="i-ok" type="button">Continuar</button></div>`
+      : `<div class="card"><p class="sub" style="margin:0"><b>${esc(YO.n)}</b> · ${esc(YO.dni)}${ENVIADO ? "" : ` · abre ${B.docs.length === 1 ? "el documento" : "los documentos"} y la lectura queda registrada`}</p></div>`) : "") + `<div class="card"><h1>${esc(B.t)}</h1><p class="sub">${esc(B.emp || "EFFICO")} · ${esc(fmtF(B.f))}${B.cad ? " · disponible hasta el " + esc(fmtF(B.cad)) : ""}</p>${B.x ? `<p class="txt">${esc(B.x)}</p>` : ""}</div>
+    <div class="card"><h2>Documentos</h2><div class="docs">${B.docs.map((d, i) => `<div class="doc"><span class="ext">${esc(ext(d.n))}</span><b>${esc(d.n.replace(/\.[^.]+$/, ""))}</b>${VISTOS.has(i) ? `<span class="vis">✓ Visto</span>` : ""}<button class="btn" type="button" data-ver="${i}"${bloq ? " disabled" : ""}>Ver</button>${B.dl ? `<button class="btn" type="button" data-dl="${i}" aria-label="Descargar">⬇</button>` : ""}</div>`).join("")}</div></div>
+    ${AUTO ? `<div class="card" id="acuse"${ENVIADO ? "" : ' style="display:none"'}>${ACUSE_HTML}</div>` : B.ack ? `<div class="card" id="acuse"><h2>Confirmar la lectura</h2>${todos() ? "" : `<p class="sub">Abre todos los documentos para poder confirmar.</p>`}
       <div class="f"><label for="a-n">Nombre y apellidos</label><input id="a-n" autocomplete="name"></div><div class="f"><label for="a-d">DNI / NIE</label><input id="a-d" autocomplete="off" autocapitalize="characters"></div>
       <label class="ck"><input type="checkbox" id="a-ck"><span>He recibido y leído los documentos de esta comunicación.</span></label><p class="err" id="a-e"></p>
       <button class="btn p" id="a-ok" type="button" ${todos() ? "" : "disabled"}>Confirmar lectura</button></div>` : ""}
     <p class="foot">Documento de uso interno de EFFICO. No lo compartas con personas ajenas a la empresa.</p>`;
   document.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => ver(Number(b.dataset.ver)));
   document.querySelectorAll("[data-dl]").forEach(b => b.onclick = () => descargar(Number(b.dataset.dl)));
-  if($("#a-ok")) $("#a-ok").onclick = confirmar;
+  if($("#a-ok")) $("#a-ok").onclick = () => confirmar(false);
+  if($("#i-ok")){ const ok = async () => { const dni = $("#i-d").value.trim().toUpperCase().replace(/[\s.-]/g, ""), e = t => { $("#i-e").textContent = t; };
+      if(!/^[XYZ]?\d{7,8}[A-Z]$/.test(dni)) return e("Escribe tu DNI o NIE completo, con la letra.");
+      if(conLista){ $("#i-ok").disabled = true; e(""); const n = await nombreDeDni(dni); $("#i-ok").disabled = false; if(!n) return e("Ese DNI no está en la lista de trabajadores de esta comunicación. Revísalo o pregunta a tu técnico de prevención."); YO = {n, dni}; }
+      else { const n = $("#i-n").value.trim(); if(n.length < 4) return e("Escribe tu nombre y apellidos."); YO = {n, dni}; }
+      pintar(); };
+    $("#i-ok").onclick = ok; $("#i-d").onkeydown = ev => { if(ev.key === "Enter") ok(); }; }
 }
 async function ver(i){
   const d = B.docs[i], P = $("#paginas"); P.innerHTML = ""; $("#l-t").textContent = d.n; $("#l-dl").classList.toggle("hidden", !B.dl); $("#l-dl").onclick = () => descargar(i); $("#lector").classList.remove("hidden"); document.body.style.overflow = "hidden";
@@ -507,17 +517,20 @@ async function ver(i){
     else if(B.dl){ const a = document.createElement("a"); a.className = "btn"; a.textContent = "Este archivo no se puede ver aquí: descargar"; a.href = URL.createObjectURL(new Blob([d.bytes])); a.download = d.n; P.appendChild(a); }
     else { const p = document.createElement("p"); p.style.color = "#fff"; p.textContent = "Este tipo de archivo no se puede ver en el móvil. Pide a tu técnico de prevención que lo comunique en PDF."; P.appendChild(p); }
     VISTOS.add(i);
+    if(B.ack && B.nube && YO && !ENVIADO && B.docs.every((_, k) => VISTOS.has(k))){ ENVIADO = true; confirmar(true); }
   }catch(err){ P.innerHTML = `<p style="color:#fff">No se ha podido mostrar el documento.</p>`; }
 }
 function descargar(i){ if(!B.dl) return; const d = B.docs[i], a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([d.bytes], {type:ext(d.n) === "PDF" ? "application/pdf" : "application/octet-stream"})); a.download = d.n; document.body.appendChild(a); a.click(); a.remove(); }
 $("#cerrar").onclick = () => { $("#lector").classList.add("hidden"); document.body.style.overflow = ""; const n = $("#a-n") && $("#a-n").value, dn = $("#a-d") && $("#a-d").value; pintar(); if(n) $("#a-n").value = n; if(dn) $("#a-d").value = dn; };
-async function confirmar(){
-  const n = $("#a-n").value.trim(), dni = $("#a-d").value.trim().toUpperCase().replace(/[\s.-]/g, "");
+async function confirmar(auto){
+  const n = auto ? YO.n : $("#a-n").value.trim(), dni = auto ? YO.dni : $("#a-d").value.trim().toUpperCase().replace(/[\s.-]/g, "");
+  if(!auto){
   if(n.length < 4) return void ($("#a-e").textContent = "Escribe tu nombre y apellidos.");
   if(!/^[XYZ]?\d{7,8}[A-Z]$/.test(dni)) return void ($("#a-e").textContent = "Escribe tu DNI o NIE completo, con la letra.");
   if(!$("#a-ck").checked) return void ($("#a-e").textContent = "Marca la casilla para confirmar.");
+  }
   const ts = new Date(), cuando = ts.toLocaleString("es-ES", {dateStyle:"short", timeStyle:"short"});
-  const meta = {c:ID, t:B.t, n, dni, ts:ts.toISOString(), docs:B.docs.map(d => d.n), h:HUELLA};
+  const meta = {c:ID, t:B.t, n, dni, ts:ts.toISOString(), docs:B.docs.map(d => d.n), h:HUELLA, auto:!!auto};
   const doc = new jspdf.jsPDF({unit:"mm", format:"a4"}); const W = 210, M = 18; let y = 18;
   try{ doc.addImage(LOGO, "PNG", M, y - 6, 34, 12); }catch(_){}
   doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.text("Acuse de recibo y lectura", M, y + 16); y += 26;
@@ -526,10 +539,14 @@ async function confirmar(){
   fila("Comunicación", B.t); fila("Empresa", B.emp || "EFFICO"); fila("Trabajador/a", n); fila("DNI / NIE", dni); fila("Fecha y hora", cuando);
   y += 4; doc.setFont("helvetica", "bold"); doc.text("Documentos recibidos y leídos", M, y); y += 6; doc.setFont("helvetica", "normal");
   B.docs.forEach(d => { const L = doc.splitTextToSize("• " + d.n, W - 2 * M); doc.text(L, M, y); y += 5.5 * L.length; });
-  y += 6; const decl = doc.splitTextToSize(`Declaro que he recibido y leído los documentos indicados, comunicados por ${B.emp || "la empresa"} en cumplimiento de los artículos 18 y 19 de la Ley 31/1995 de Prevención de Riesgos Laborales.`, W - 2 * M); doc.text(decl, M, y); y += 6 * decl.length + 6;
+  y += 6; const decl = doc.splitTextToSize(`${auto ? "Registro automático: la persona identificada ha abierto y visto en su móvil todos los documentos indicados. " : ""}Declaro que he recibido y leído los documentos indicados, comunicados por ${B.emp || "la empresa"} en cumplimiento de los artículos 18 y 19 de la Ley 31/1995 de Prevención de Riesgos Laborales.`, W - 2 * M); doc.text(decl, M, y); y += 6 * decl.length + 6;
   doc.setFontSize(8.5); doc.setTextColor(110); doc.text(`Huella de la comunicación: ${HUELLA} · Ref. ${ID}`, M, 285);
   doc.setProperties({title:"Acuse: " + B.t, subject:"EFFICO-ACUSE", author:n, keywords:"EFFICO-ACUSE:" + b64u.enc(new TextEncoder().encode(JSON.stringify(meta))), creator:"EFFICO SIG"});
   const blob = doc.output("blob"), nombre = `Acuse_${n.replace(/[^\wÀ-ÿ]+/g, "_")}.pdf`, file = new File([blob], nombre, {type:"application/pdf"}), url = URL.createObjectURL(blob);
+  if(B.nube){ $("#acuse").style.display = ""; $("#acuse").innerHTML = ACUSE_HTML = `<div class="center"><p class="sub">Registrando la lectura…</p></div>`;
+    const fin = async () => { if(await enviarAcuse(blob)){ $("#acuse").innerHTML = ACUSE_HTML = `<div class="center"><div class="ok">✓</div><h2 style="color:var(--ink);font-size:19px">Lectura registrada</h2><p><b>Ya le ha llegado a EFFICO.</b> No tienes que hacer nada más.</p><a class="btn" href="${url}" download="${esc(nombre)}">Descargar mi justificante</a></div>`; }
+      else { $("#acuse").innerHTML = ACUSE_HTML = `<div class="center"><p class="err">No se ha podido registrar la lectura. Comprueba tu conexión.</p><button class="btn p" id="a-rt" type="button">Reintentar</button></div>`; $("#a-rt").onclick = () => { $("#acuse").innerHTML = `<div class="center"><p class="sub">Registrando la lectura…</p></div>`; fin(); }; } };
+    await fin(); return; }
   const T = B.tec || {}, tel = String(T.wa || "").replace(/[^\d]/g, ""), telI = tel.length === 9 ? "34" + tel : tel;
   const txt = `Hola${T.n ? " " + T.n.split(" ")[0] : ""}, soy ${n}. Confirmo que he recibido y leído «${B.t}» (${cuando}).`;
   const wa = tel ? `https://wa.me/${telI}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`, mail = `mailto:${encodeURIComponent(T.m || "")}?subject=${encodeURIComponent("Acuse de lectura: " + B.t)}&body=${encodeURIComponent(txt)}`;
@@ -543,6 +560,23 @@ async function confirmar(){
   $("#b-wa").onclick = async () => { if(await adjuntar("Acuse de lectura")) return; sin(wa, "WhatsApp"); };
   $("#b-mail").onclick = async () => { if(await adjuntar("Acuse de lectura: " + B.t)) return; sin(mail, "el correo"); };
   $("#b-otro").onclick = async () => { if(await adjuntar("Acuse de lectura")) return; descargar(); msg("El justificante está descargado: envíalo por donde quieras."); };
+}
+/* Comprueba el DNI con la lista de la comunicación (solo huellas) y devuelve el nombre del trabajador */
+async function nombreDeDni(dni){
+  try{ const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(dni), "PBKDF2", false, ["deriveBits"]), bits = new Uint8Array(await crypto.subtle.deriveBits({name:"PBKDF2", hash:"SHA-256", salt:b64u.dec(B.ds), iterations:20000}, k, 384));
+    const h = b64u.enc(bits.slice(0, 16)), x = B.dn.find(z => z.h === h); if(!x) return "";
+    const u = b64u.dec(x.n), ak = await crypto.subtle.importKey("raw", bits.slice(16), "AES-GCM", false, ["decrypt"]);
+    return new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM", iv:u.subarray(0, 12)}, ak, u.subarray(12)));
+  }catch(e){ console.error(e); return ""; }
+}
+/* El justificante se cifra con la misma llave de la comunicación y se deja en el servicio de EFFICO, que lo recoge sola */
+async function enviarAcuse(blob){ return enviarA(B.nube, ID, KEY, blob); }
+async function enviarA(nube, id, key, blob){
+  try{ const raw = b64u.dec(key), k = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt"]), iv = crypto.getRandomValues(new Uint8Array(12));
+    const c = new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM", iv}, k, new Uint8Array(await blob.arrayBuffer()))), o = new Uint8Array(12 + c.length); o.set(iv); o.set(c, 12);
+    for(let i = 0; i < 3; i++){ try{ const r = await fetch(nube.replace(/\/+$/, "") + "/api/a/" + id, {method:"POST", headers:{"content-type":"application/octet-stream"}, body:o}); if(r.ok) return true; }catch(_){ await new Promise(r => setTimeout(r, 1500)); } }
+  }catch(e){ console.error(e); }
+  return false;
 }
 /* ---------- Firma de asistencia a una charla ---------- */
 async function charla(){
@@ -576,6 +610,11 @@ async function charla(){
     const meta = {c:C.id, n:nom, dni, ts:ts.toISOString(), v:V, com, fi};
     doc.setProperties({title:"Firma charla: " + (C.t || ""), subject:"EFFICO-CHARLA", author:nom, keywords:"EFFICO-CHARLA:" + b64u.enc(new TextEncoder().encode(JSON.stringify(meta))), creator:"EFFICO SIG"});
     const blob = doc.output("blob"), nombre = `Firma_charla_${nom.replace(/[^\wÀ-ÿ]+/g, "_")}.pdf`;
+    if(C.nube && C.k){ const url = URL.createObjectURL(blob), box = $("#fch");
+      const fin = async () => { box.innerHTML = `<div class="center"><p class="sub">Enviando tu firma…</p></div>`;
+        if(await enviarA(C.nube, C.id, C.k, blob)) box.innerHTML = `<div class="center"><div class="ok">✓</div><h2 style="color:var(--ink);font-size:19px">Firma registrada</h2><p><b>Ya le ha llegado a EFFICO.</b> No tienes que hacer nada más.</p><a class="btn" href="${url}" download="${esc(nombre)}">Descargar mi copia</a></div>`;
+        else { box.innerHTML = `<div class="center"><p class="err">No se ha podido enviar tu firma. Comprueba tu conexión.</p><button class="btn p" id="ch-rt" type="button">Reintentar</button></div>`; $("#ch-rt").onclick = fin; } };
+      await fin(); return; }
     enviarJustificante($("#fch"), "Charla firmada", blob, nombre, `Hola${C.tec && C.tec.n ? " " + C.tec.n.split(" ")[0] : ""}, soy ${nom}. Te envío mi firma de asistencia a la charla «${C.t || ""}» (${cuando}).`, C.tec || {}, "Firma de charla: " + (C.t || ""));
   };
 }
